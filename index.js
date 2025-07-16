@@ -52,27 +52,121 @@ async function searchInFile(filePath, searchTerm) {
 server.registerTool("list_vaults",
   {
     title: "List Vaults",
-    description: "List all available Obsidian vaults",
-    inputSchema: {}
+    description: "List all available Obsidian vaults with detailed information",
+    inputSchema: {
+      detailed: z.boolean().optional().describe("Show detailed information about each vault")
+    }
   },
-  async () => {
+  async ({ detailed = false }) => {
     try {
+      if (!await fs.pathExists(VAULT_BASE_PATH)) {
+        return {
+          content: [{
+            type: "text",
+            text: `Vault base path not found: ${VAULT_BASE_PATH}`
+          }]
+        };
+      }
+
       const entries = await fs.readdir(VAULT_BASE_PATH, { withFileTypes: true });
       const vaults = entries
         .filter(entry => entry.isDirectory())
         .map(entry => entry.name);
       
+      if (vaults.length === 0) {
+        return {
+          content: [{
+            type: "text",
+            text: `No vaults found in: ${VAULT_BASE_PATH}`
+          }]
+        };
+      }
+
+      let result = `📁 Found ${vaults.length} vault${vaults.length === 1 ? '' : 's'} in: ${VAULT_BASE_PATH}\n\n`;
+
+      if (detailed) {
+        for (const vaultName of vaults) {
+          try {
+            const vaultPath = path.join(VAULT_BASE_PATH, vaultName);
+            const stat = await fs.stat(vaultPath);
+            
+            // Count files and folders
+            const allFiles = await glob(path.join(vaultPath, "**/*"), { nodir: true });
+            const markdownFiles = allFiles.filter(file => path.extname(file) === '.md');
+            
+            result += `🗃️  **${vaultName}**\n`;
+            result += `   📝 Markdown files: ${markdownFiles.length}\n`;
+            result += `   📄 Total files: ${allFiles.length}\n`;
+            result += `   📅 Last modified: ${stat.mtime.toLocaleDateString()}\n`;
+            result += `   📍 Path: ${vaultPath}\n\n`;
+          } catch (error) {
+            result += `🗃️  **${vaultName}** (Error reading details: ${error.message})\n\n`;
+          }
+        }
+      } else {
+        result += vaults.map(v => `🗃️  ${v}`).join('\n');
+      }
+      
       return {
         content: [{
           type: "text",
-          text: `Available vaults:\n${vaults.map(v => `- ${v}`).join('\n')}`
+          text: result
         }]
       };
     } catch (error) {
       return {
         content: [{
           type: "text",
-          text: `Error listing vaults: ${error.message}`
+          text: `Error listing vaults: ${error.message}\nBase path: ${VAULT_BASE_PATH}`
+        }]
+      };
+    }
+  }
+);
+
+// Tool 1.1: Get vault names only
+server.registerTool("get_vault_names",
+  {
+    title: "Get Vault Names",
+    description: "Get a simple list of vault names only",
+    inputSchema: {}
+  },
+  async () => {
+    try {
+      if (!await fs.pathExists(VAULT_BASE_PATH)) {
+        return {
+          content: [{
+            type: "text",
+            text: `Vault base path not found: ${VAULT_BASE_PATH}`
+          }]
+        };
+      }
+
+      const entries = await fs.readdir(VAULT_BASE_PATH, { withFileTypes: true });
+      const vaults = entries
+        .filter(entry => entry.isDirectory())
+        .map(entry => entry.name);
+      
+      if (vaults.length === 0) {
+        return {
+          content: [{
+            type: "text",
+            text: `No vaults found in: ${VAULT_BASE_PATH}`
+          }]
+        };
+      }
+
+      return {
+        content: [{
+          type: "text",
+          text: JSON.stringify(vaults, null, 2)
+        }]
+      };
+    } catch (error) {
+      return {
+        content: [{
+          type: "text",
+          text: `Error getting vault names: ${error.message}`
         }]
       };
     }
