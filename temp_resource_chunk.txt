@@ -1,0 +1,55 @@
+// Resource: Vault contents
+server.registerResource(
+  "vault",
+  new ResourceTemplate("vault://{vaultName}/{path*}", { list: undefined }),
+  {
+    title: "Vault Resource",
+    description: "Access to vault files and folders"
+  },
+  async (uri, { vaultName, path }) => {
+    try {
+      const vaultPath = await getVaultPath(vaultName);
+      const fullPath = path ? path.join(vaultPath, path) : vaultPath;
+      
+      if (!await fs.pathExists(fullPath)) {
+        return {
+          contents: [{
+            uri: uri.href,
+            text: `Path not found: ${path || '/'}`
+          }]
+        };
+      }
+      
+      const stat = await fs.stat(fullPath);
+      
+      if (stat.isFile()) {
+        const content = await fs.readFile(fullPath, 'utf8');
+        return {
+          contents: [{
+            uri: uri.href,
+            text: content
+          }]
+        };
+      } else {
+        const entries = await fs.readdir(fullPath, { withFileTypes: true });
+        const listing = entries.map(entry => 
+          entry.isDirectory() ? `📁 ${entry.name}/` : `📄 ${entry.name}`
+        ).join('\n');
+        
+        return {
+          contents: [{
+            uri: uri.href,
+            text: `Contents of ${vaultName}${path ? `/${path}` : ''}:\n\n${listing}`
+          }]
+        };
+      }
+    } catch (error) {
+      return {
+        contents: [{
+          uri: uri.href,
+          text: `Error accessing vault: ${error.message}`
+        }]
+      };
+    }
+  }
+);
