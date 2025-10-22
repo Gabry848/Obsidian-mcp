@@ -5,8 +5,8 @@ Un server MCP (Model Context Protocol) completo per la gestione dei vault di Obs
 ## 🚀 Caratteristiche
 
 - **Gestione completa dei vault**: Elenca, visualizza e gestisce tutti i tuoi vault Obsidian
-- **Operazioni sui file**: Leggi, scrivi, sposta, elimina e rinomina file
-- **Ricerca avanzata**: Cerca testo in file specifici o in tutto il vault
+- **Operazioni sui file**: Leggi, scrivi, modifica con operazioni mirate, sposta, elimina e rinomina file
+- **Ricerca avanzata**: Cerca testo in file specifici, in cartelle dedicate o in tutto il vault
 - **Gestione cartelle**: Crea, elimina e gestisci le cartelle
 - **Statistiche**: Ottieni informazioni dettagliate sui vault
 - **Risorse URI**: Accesso diretto ai contenuti tramite URI `vault://`
@@ -73,11 +73,13 @@ Elenca file e cartelle in un vault specifico o in una sottocartella.
 - `subPath` (opzionale): `string` - Percorso della sottocartella
 
 ### 4. **`read_file`**
-Legge il contenuto di un file in un vault.
+Legge il contenuto di un file in un vault, con la possibilit� di limitare la lettura a un intervallo di righe.
 
 **Parametri:**
 - `vaultName`: `string` - Nome del vault
 - `filePath`: `string` - Percorso del file nel vault
+- `startLine` (opzionale): `number` - Riga iniziale (1-based)
+- `endLine` (opzionale): `number` - Riga finale inclusiva
 
 ### 5. **`write_file`**
 Crea o sovrascrive un file in un vault.
@@ -87,7 +89,35 @@ Crea o sovrascrive un file in un vault.
 - `filePath`: `string` - Percorso del file nel vault
 - `content`: `string` - Contenuto da scrivere
 
-### 6. **`search_in_file`**
+### 6. **`modify_file`**
+Applica modifiche mirate a un file senza dover fornire l'intero contenuto sostitutivo.
+
+**Parametri:**
+- `vaultName`: `string` - Nome del vault
+- `filePath`: `string` - Percorso del file nel vault
+- `operations`: `Array` - Lista ordinata delle operazioni da applicare
+
+**Operazioni supportate:**
+- `append`: aggiunge testo alla fine del file
+- `prepend`: aggiunge testo all'inizio del file
+- `insert_after`: inserisce testo subito dopo un'ancora (con opzione `occurrence`)
+- `insert_before`: inserisce testo prima di un'ancora
+- `replace`: sostituisce la prima o N-esima occorrenza (o tutte impostando `allOccurrences: true`)
+- `replace_range`: sostituisce il contenuto compreso tra due offset (0-based, end esclusivo)
+
+**Esempio:**
+```javascript
+modify_file({
+  vaultName: "PersonalNotes",
+  filePath: "journal/2025-07-16.md",
+  operations: [
+    { type: "append", text: "\n\n## Summary\nGiornata produttiva." },
+    { type: "replace", target: "TODO", text: "DONE", allOccurrences: true }
+  ]
+})
+```
+
+### 7. **`search_in_file`**
 Cerca testo in un file specifico.
 
 **Parametri:**
@@ -95,7 +125,17 @@ Cerca testo in un file specifico.
 - `filePath`: `string` - Percorso del file
 - `searchTerm`: `string` - Testo da cercare
 
-### 7. **`global_search`**
+### 8. **`search_in_folder`**
+Cerca testo all'interno dei file presenti in una cartella specifica del vault.
+
+**Parametri:**
+- `vaultName`: `string` - Nome del vault
+- `folderPath`: `string` - Cartella (relativa al vault) da ispezionare
+- `searchTerm`: `string` - Testo da cercare
+- `recursive` (opzionale): `boolean` - Include le sottocartelle (default `true`)
+- `filePattern` (opzionale): `string` - Pattern glob relativo alla cartella (es: `*.md`)
+
+### 9. **`global_search`**
 Cerca testo in tutti i file di un vault.
 
 **Parametri:**
@@ -103,21 +143,21 @@ Cerca testo in tutti i file di un vault.
 - `searchTerm`: `string` - Testo da cercare
 - `filePattern` (opzionale): `string` - Pattern dei file (es: `*.md`)
 
-### 8. **`create_folder`**
+### 10. **`create_folder`**
 Crea una nuova cartella in un vault.
 
 **Parametri:**
 - `vaultName`: `string` - Nome del vault
 - `folderPath`: `string` - Percorso della cartella da creare
 
-### 9. **`delete_item`**
+### 11. **`delete_item`**
 Elimina un file o cartella da un vault.
 
 **Parametri:**
 - `vaultName`: `string` - Nome del vault
 - `itemPath`: `string` - Percorso dell'elemento da eliminare
 
-### 10. **`move_item`**
+### 12. **`move_item`**
 Sposta o rinomina un file o cartella.
 
 **Parametri:**
@@ -125,7 +165,7 @@ Sposta o rinomina un file o cartella.
 - `sourcePath`: `string` - Percorso attuale
 - `destinationPath`: `string` - Nuovo percorso
 
-### 11. **`get_vault_stats`**
+### 13. **`get_vault_stats`**
 Ottiene statistiche dettagliate su un vault.
 
 **Parametri:**
@@ -201,6 +241,37 @@ write_file({
 
 // Output:
 // File daily/2025-07-16.md written successfully
+```
+
+### Esempio 5: Leggere solo una parte di un file
+```javascript
+read_file({
+  vaultName: "PersonalNotes",
+  filePath: "projects/progetto-a.md",
+  startLine: 10,
+  endLine: 20
+})
+
+// Output:
+// Content of projects/progetto-a.md (lines 10-20 of 128):
+// ...
+```
+
+### Esempio 6: Applicare modifiche mirate a un file
+```javascript
+modify_file({
+  vaultName: "PersonalNotes",
+  filePath: "tasks/inbox.md",
+  operations: [
+    { type: "replace", target: "- [ ] Nuovo task", text: "- [x] Nuovo task completato" },
+    { type: "append", text: "\n- [ ] Task generato automaticamente" }
+  ]
+})
+
+// Output:
+// File tasks/inbox.md modified successfully.
+// Operation 1: replaced all occurrences of target (1 matches)
+// Operation 2: appended 35 characters
 ```
 
 ## 🔐 Sicurezza

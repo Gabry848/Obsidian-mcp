@@ -48,6 +48,25 @@ async function searchInFile(filePath, searchTerm) {
   }
 }
 
+function findNthOccurrence(haystack, needle, occurrence = 1) {
+  if (!needle) {
+    throw new Error("Anchor/target text must not be empty");
+  }
+
+  let index = -1;
+  let fromIndex = 0;
+
+  for (let i = 0; i < occurrence; i++) {
+    index = haystack.indexOf(needle, fromIndex);
+    if (index === -1) {
+      return -1;
+    }
+    fromIndex = index + needle.length;
+  }
+
+  return index;
+}
+
 // Tool 1: List all vaults
 server.registerTool("list_vaults",
   {
@@ -235,10 +254,12 @@ server.registerTool("read_file",
     description: "Read the content of a file in a vault",
     inputSchema: {
       vaultName: z.string().describe("Name of the vault"),
-      filePath: z.string().describe("Path to the file within the vault")
+      filePath: z.string().describe("Path to the file within the vault"),
+      startLine: z.number().int().min(1).optional().describe("Optional 1-based line number to start reading from"),
+      endLine: z.number().int().min(1).optional().describe("Optional 1-based line number to stop reading at (inclusive)")
     }
   },
-  async ({ vaultName, filePath }) => {
+  async ({ vaultName, filePath, startLine, endLine }) => {
     try {
       const vaultPath = await getVaultPath(vaultName);
       const fullPath = path.join(vaultPath, filePath);
@@ -252,7 +273,45 @@ server.registerTool("read_file",
         };
       }
       
+      if (endLine !== undefined && startLine !== undefined && endLine < startLine) {
+        return {
+          content: [{
+            type: "text",
+            text: "endLine must be greater than or equal to startLine"
+          }]
+        };
+      }
+
       const content = await fs.readFile(fullPath, 'utf8');
+      const hasLineRange = startLine !== undefined || endLine !== undefined;
+
+      if (hasLineRange) {
+        const lines = content.split(/\r?\n/);
+        const totalLines = lines.length;
+        const effectiveStart = startLine !== undefined ? startLine : 1;
+        const effectiveEnd = endLine !== undefined ? Math.min(endLine, totalLines) : totalLines;
+
+        if (effectiveStart > totalLines) {
+          return {
+            content: [{
+              type: "text",
+              text: `Start line ${effectiveStart} exceeds total lines (${totalLines}) in ${filePath}`
+            }]
+          };
+        }
+
+        const normalizedStart = Math.max(effectiveStart, 1);
+        const normalizedEnd = Math.max(effectiveEnd, normalizedStart);
+        const eol = content.includes('\r\n') ? '\r\n' : '\n';
+        const excerpt = lines.slice(normalizedStart - 1, normalizedEnd).join(eol);
+
+        return {
+          content: [{
+            type: "text",
+            text: `Content of ${filePath} (lines ${normalizedStart}-${normalizedEnd} of ${totalLines}):\n\n${excerpt}`
+          }]
+        };
+      }
       
       return {
         content: [{
@@ -309,7 +368,182 @@ server.registerTool("write_file",
   }
 );
 
-// Tool 5: Search in specific file
+// Tool 5: Modify file content incrementally
+server.registerTool("modify_file",
+  {
+    title: "Modify File",
+    description: "Apply targeted edits to a file without providing the entire replacement content",
+    inputSchema: {
+      vaultName: z.string().describe("Name of the vault"),
+      filePath: z.string().describe("Path to the file within the vault"),
+      operations: z.array(
+        z.discriminatedUnion("type", [
+          z.object({
+            type: z.literal("append"),
+            text: z.string().describe("Text to append to the end of the file")
+          }),
+          z.object({
+            type: z.literal("prepend"),
+            text: z.string().describe("Text to prepend to the start of the file")
+          }),
+          z.object({
+            type: z.literal("insert_after"),
+            anchor: z.string().min(1).describe("Text to insert after"),
+            text: z.string().describe("Text to insert"),
+            occurrence: z.number().int().min(1).optional().describe("Which occurrence of the anchor to use (default: first)")
+          }),
+          z.object({
+            type: z.literal("insert_before"),
+            anchor: z.string().min(1).describe("Text to insert before"),
+            text: z.string().describe("Text to insert"),
+            occurrence: z.number().int().min(1).optional().describe("Which occurrence of the anchor to use (default: first)")
+          }),
+          z.object({
+            type: z.literal("replace"),
+            target: z.string().min(1).describe("Text to replace"),
+            text: z.string().describe("Replacement text"),
+            occurrence: z.number().int().min(1).optional().describe("Replace the N-th occurrence (ignored if allOccurrences=true)"),
+            allOccurrences: z.boolean().optional().describe("Replace all occurrences (default: false)")
+          }),
+          z.object({
+            type: z.literal("replace_range"),
+            startOffset: z.number().int().min(0).describe("Start character offset (0-based, inclusive)"),
+            endOffset: z.number().int().min(0).describe("End character offset (0-based, exclusive)"),
+            text: z.string().describe("Replacement text for the specified range")
+          })
+        ])
+      ).min(1).describe("Ordered list of modifications to apply")
+    }
+  },
+  async ({ vaultName, filePath, operations }) => {
+    try {
+      const vaultPath = await getVaultPath(vaultName);
+      const fullPath = path.join(vaultPath, filePath);
+
+      if (!await fs.pathExists(fullPath)) {
+        return {
+          content: [{
+            type: "text",
+            text: `File not found: ${filePath}`
+          }]
+        };
+      }
+
+      let content = await fs.readFile(fullPath, 'utf8');
+      const originalContent = content;
+      const notes = [];
+
+      for (const [index, operation] of operations.entries()) {
+        try {
+          switch (operation.type) {
+            case "append": {
+              content += operation.text;
+              notes.push(`Operation ${index + 1}: appended ${operation.text.length} characters`);
+              break;
+            }
+            case "prepend": {
+              content = operation.text + content;
+              notes.push(`Operation ${index + 1}: prepended ${operation.text.length} characters`);
+              break;
+            }
+            case "insert_after": {
+              const occurrence = operation.occurrence ?? 1;
+              const anchorIndex = findNthOccurrence(content, operation.anchor, occurrence);
+
+              if (anchorIndex === -1) {
+                throw new Error(`Anchor text not found for insert_after (occurrence ${occurrence})`);
+              }
+
+              const insertPos = anchorIndex + operation.anchor.length;
+              content = content.slice(0, insertPos) + operation.text + content.slice(insertPos);
+              notes.push(`Operation ${index + 1}: inserted after occurrence ${occurrence} of anchor`);
+              break;
+            }
+            case "insert_before": {
+              const occurrence = operation.occurrence ?? 1;
+              const anchorIndex = findNthOccurrence(content, operation.anchor, occurrence);
+
+              if (anchorIndex === -1) {
+                throw new Error(`Anchor text not found for insert_before (occurrence ${occurrence})`);
+              }
+
+              content = content.slice(0, anchorIndex) + operation.text + content.slice(anchorIndex);
+              notes.push(`Operation ${index + 1}: inserted before occurrence ${occurrence} of anchor`);
+              break;
+            }
+            case "replace": {
+              if (operation.allOccurrences) {
+                const parts = content.split(operation.target);
+                if (parts.length === 1) {
+                  throw new Error("Target text not found for replace (all occurrences)");
+                }
+                content = parts.join(operation.text);
+                notes.push(`Operation ${index + 1}: replaced all occurrences of target (${parts.length - 1} matches)`);
+              } else {
+                const occurrence = operation.occurrence ?? 1;
+                const targetIndex = findNthOccurrence(content, operation.target, occurrence);
+
+                if (targetIndex === -1) {
+                  throw new Error(`Target text not found for replace (occurrence ${occurrence})`);
+                }
+
+                content = content.slice(0, targetIndex) + operation.text + content.slice(targetIndex + operation.target.length);
+                notes.push(`Operation ${index + 1}: replaced occurrence ${occurrence} of target`);
+              }
+              break;
+            }
+            case "replace_range": {
+              const { startOffset, endOffset, text } = operation;
+
+              if (startOffset > endOffset) {
+                throw new Error("replace_range startOffset must be less than or equal to endOffset");
+              }
+
+              if (endOffset > content.length) {
+                throw new Error("replace_range endOffset exceeds file length");
+              }
+
+              content = content.slice(0, startOffset) + text + content.slice(endOffset);
+              notes.push(`Operation ${index + 1}: replaced characters ${startOffset}-${endOffset}`);
+              break;
+            }
+            default:
+              throw new Error(`Unsupported operation type: ${operation.type}`);
+          }
+        } catch (operationError) {
+          throw new Error(`Failed to apply operation ${index + 1} (${operation.type}): ${operationError.message}`);
+        }
+      }
+
+      if (content === originalContent) {
+        return {
+          content: [{
+            type: "text",
+            text: `No changes applied to ${filePath}; operations left content unchanged.`
+          }]
+        };
+      }
+
+      await fs.writeFile(fullPath, content, 'utf8');
+
+      return {
+        content: [{
+          type: "text",
+          text: `File ${filePath} modified successfully.\n${notes.join('\n')}`
+        }]
+      };
+    } catch (error) {
+      return {
+        content: [{
+          type: "text",
+          text: `Error modifying file: ${error.message}`
+        }]
+      };
+    }
+  }
+  );
+  
+// Tool 6: Search in specific file
 server.registerTool("search_in_file",
   {
     title: "Search in File",
@@ -363,9 +597,107 @@ server.registerTool("search_in_file",
       };
     }
   }
-);
+  );
+  
+// Tool 7: Search in folder
+server.registerTool("search_in_folder",
+    {
+      title: "Search in Folder",
+      description: "Search for text within files located in a specific folder of a vault",
+      inputSchema: {
+        vaultName: z.string().describe("Name of the vault"),
+        folderPath: z.string().describe("Folder path within the vault to search"),
+        searchTerm: z.string().describe("Text to search for"),
+        recursive: z.boolean().optional().describe("Search subfolders recursively (default: true)"),
+        filePattern: z.string().optional().describe("Optional glob pattern relative to the folder (e.g., '*.md')")
+      }
+    },
+    async ({ vaultName, folderPath, searchTerm, recursive = true, filePattern }) => {
+      try {
+        const vaultPath = await getVaultPath(vaultName);
+        const folderFullPath = path.join(vaultPath, folderPath);
 
-// Tool 6: Global search in vault
+        if (!await fs.pathExists(folderFullPath)) {
+          return {
+            content: [{
+              type: "text",
+              text: `Folder not found: ${folderPath}`
+            }]
+          };
+        }
+
+        const stat = await fs.stat(folderFullPath);
+        if (!stat.isDirectory()) {
+          return {
+            content: [{
+              type: "text",
+              text: `Path is not a directory: ${folderPath}`
+            }]
+          };
+        }
+
+        const patternSegment = filePattern ?? (recursive ? "**/*" : "*");
+        const globPattern = path.join(folderFullPath, patternSegment);
+        const files = await glob(globPattern, { nodir: true });
+
+        if (files.length === 0) {
+          return {
+            content: [{
+              type: "text",
+              text: `No files matched pattern "${patternSegment}" in ${folderPath}`
+            }]
+          };
+        }
+
+        const allMatches = [];
+
+        for (const file of files) {
+          const matches = await searchInFile(file, searchTerm);
+          if (matches.length > 0) {
+            allMatches.push({
+              file: path.relative(vaultPath, file),
+              matches
+            });
+          }
+        }
+
+        if (allMatches.length === 0) {
+          return {
+            content: [{
+              type: "text",
+              text: `No matches found for "${searchTerm}" in folder ${folderPath}`
+            }]
+          };
+        }
+
+        let result = `Found matches for "${searchTerm}" in ${allMatches.length} file${allMatches.length === 1 ? '' : 's'} within ${folderPath}:\n\n`;
+
+        allMatches.forEach(fileMatch => {
+          result += `�Y"" ${fileMatch.file} (${fileMatch.matches.length} matches):\n`;
+          fileMatch.matches.forEach(match => {
+            result += `  Line ${match.line}: ${match.content}\n`;
+          });
+          result += '\n';
+        });
+
+        return {
+          content: [{
+            type: "text",
+            text: result
+          }]
+        };
+      } catch (error) {
+        return {
+          content: [{
+            type: "text",
+            text: `Error searching folder: ${error.message}`
+          }]
+        };
+      }
+    }
+  );
+  
+// Tool 8: Global search in vault
 server.registerTool("global_search",
   {
     title: "Global Search",
@@ -432,7 +764,7 @@ server.registerTool("global_search",
   }
 );
 
-// Tool 7: Create folder
+// Tool 9: Create folder
 server.registerTool("create_folder",
   {
     title: "Create Folder",
@@ -466,7 +798,7 @@ server.registerTool("create_folder",
   }
 );
 
-// Tool 8: Delete file or folder
+// Tool 10: Delete file or folder
 server.registerTool("delete_item",
   {
     title: "Delete Item",
@@ -509,7 +841,7 @@ server.registerTool("delete_item",
   }
 );
 
-// Tool 9: Move/Rename item
+// Tool 11: Move/Rename item
 server.registerTool("move_item",
   {
     title: "Move/Rename Item",
@@ -557,7 +889,7 @@ server.registerTool("move_item",
   }
 );
 
-// Tool 10: Get vault statistics
+// Tool 12: Get vault statistics
 server.registerTool("get_vault_stats",
   {
     title: "Get Vault Statistics",
