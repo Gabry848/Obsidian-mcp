@@ -7,6 +7,7 @@ import { glob } from "glob";
 
 // Configuration
 const VAULT_BASE_PATH = process.env.OBSIDIAN_VAULT_PATH || "C:/Users/User/Documents/Obsidian";
+const CONFIG_FILENAME = "config.md";
 
 // Create an MCP server
 const server = new McpServer({
@@ -65,6 +66,42 @@ function findNthOccurrence(haystack, needle, occurrence = 1) {
   }
 
   return index;
+}
+
+async function getVaultConfigPath(vaultName) {
+  const vaultPath = await getVaultPath(vaultName);
+  return {
+    vaultPath,
+    configPath: path.join(vaultPath, CONFIG_FILENAME)
+  };
+}
+
+async function getVaultStructureOverview(vaultPath) {
+  const overview = {
+    topLevelFolders: [],
+    markdownFiles: 0,
+    totalFiles: 0
+  };
+
+  try {
+    const entries = await fs.readdir(vaultPath, { withFileTypes: true });
+    overview.topLevelFolders = entries
+      .filter(entry => entry.isDirectory())
+      .map(entry => entry.name)
+      .sort((a, b) => a.localeCompare(b));
+  } catch (error) {
+    // ignore directory read errors, overview will stay minimal
+  }
+
+  try {
+    const allFiles = await glob(path.join(vaultPath, "**/*"), { nodir: true });
+    overview.totalFiles = allFiles.length;
+    overview.markdownFiles = allFiles.filter(file => path.extname(file).toLowerCase() === ".md").length;
+  } catch (error) {
+    // ignore file enumeration errors
+  }
+
+  return overview;
 }
 
 // Tool 1: List all vaults
@@ -351,12 +388,12 @@ server.registerTool("write_file",
       
       await fs.writeFile(fullPath, content, 'utf8');
       
-      return {
-        content: [{
-          type: "text",
-          text: `File ${filePath} written successfully`
-        }]
-      };
+        return {
+          content: [{
+            type: "text",
+            text: `File ${filePath} written successfully. Ricorda di aggiornare ${CONFIG_FILENAME} se il contenuto modifica le istruzioni o la struttura del vault.`
+          }]
+        };
     } catch (error) {
       return {
         content: [{
@@ -526,12 +563,12 @@ server.registerTool("modify_file",
 
       await fs.writeFile(fullPath, content, 'utf8');
 
-      return {
-        content: [{
-          type: "text",
-          text: `File ${filePath} modified successfully.\n${notes.join('\n')}`
-        }]
-      };
+        return {
+          content: [{
+            type: "text",
+            text: `File ${filePath} modified successfully.\n${notes.join('\n')}\nAggiorna ${CONFIG_FILENAME} se queste modifiche impattano workflow, convenzioni o sezioni documentate.`
+          }]
+        };
     } catch (error) {
       return {
         content: [{
@@ -541,9 +578,145 @@ server.registerTool("modify_file",
       };
     }
   }
-  );
-  
-// Tool 6: Search in specific file
+);
+
+// Tool 6: Vault overview helper
+server.registerTool("get_vault_overview",
+  {
+    title: "Get Vault Overview",
+    description: "Leggi automaticamente il file config.md di un vault per comprenderne struttura, scopo e istruzioni chiave",
+    inputSchema: {
+      vaultName: z.string().describe("Nome del vault")
+    }
+  },
+  async ({ vaultName }) => {
+    try {
+      const { configPath } = await getVaultConfigPath(vaultName);
+
+      if (!await fs.pathExists(configPath)) {
+        return {
+          content: [{
+            type: "text",
+            text: `Il file ${CONFIG_FILENAME} non esiste nel vault ${vaultName}. Esegui init_vault_config prima di usare questo strumento.`
+          }]
+        };
+      }
+
+      const content = await fs.readFile(configPath, "utf8");
+
+      return {
+        content: [{
+          type: "text",
+          text: `Contenuto di ${CONFIG_FILENAME} per ${vaultName}:\n\n${content}`
+        }]
+      };
+    } catch (error) {
+      return {
+        content: [{
+          type: "text",
+          text: `Errore durante la lettura di ${CONFIG_FILENAME}: ${error.message}`
+        }]
+      };
+    }
+  }
+);
+
+// Tool 7: Initialize or refresh vault config
+server.registerTool("init_vault_config",
+  {
+    title: "Initialize Vault Config",
+    description: "Crea o rigenera il file config.md di un vault con istruzioni generali, panoramica della struttura e note operative",
+    inputSchema: {
+      vaultName: z.string().describe("Nome del vault"),
+      overwrite: z.boolean().optional().describe("Sovrascrive il file config.md se già esistente (default: false)"),
+      includeStructure: z.boolean().optional().describe("Include una panoramica automatica della struttura del vault (default: true)"),
+      additionalContext: z.string().optional().describe("Testo extra da inserire nella sezione Purpose del config.md")
+    }
+  },
+  async ({ vaultName, overwrite = false, includeStructure = true, additionalContext }) => {
+    try {
+      const { vaultPath, configPath } = await getVaultConfigPath(vaultName);
+      const configExists = await fs.pathExists(configPath);
+
+      if (configExists && !overwrite) {
+        return {
+          content: [{
+            type: "text",
+            text: `Il file ${CONFIG_FILENAME} esiste già nel vault ${vaultName}. Usa overwrite=true per rigenerarlo oppure modificalo manualmente.`
+          }]
+        };
+      }
+
+      let structureSection = "Nessuna panoramica automatica disponibile.";
+      if (includeStructure) {
+        const overview = await getVaultStructureOverview(vaultPath);
+        const folderLines = overview.topLevelFolders.length > 0
+          ? overview.topLevelFolders.map(name => `- ${name}/`).join("\n")
+          : "- Nessuna cartella di primo livello rilevata.";
+
+        structureSection = [
+          "### Cartelle principali",
+          folderLines,
+          "",
+          "### Statistiche rapide",
+          `- File totali: ${overview.totalFiles}`,
+          `- File Markdown: ${overview.markdownFiles}`
+        ].join("\n");
+      }
+
+      const userContextBlock = additionalContext && additionalContext.trim().length > 0
+        ? `${additionalContext.trim()}\n\n`
+        : "";
+
+      const timestamp = new Date().toISOString();
+      const template = `# Vault Configuration Guide
+_Last updated: ${timestamp}_
+
+## Purpose
+${userContextBlock}Descrivi qui lo scopo principale del vault, i tipi di informazione presenti e come vanno utilizzati i contenuti.
+
+## Operating Principles
+- Mantieni questo file aggiornato quando aggiungi sezioni, cartelle o processi importanti.
+- Riassumi le convenzioni di naming, tag e collegamenti interni.
+- Evidenzia le aree che richiedono attenzione speciale da parte dell'IA o dell'utente.
+
+## Structure Snapshot
+${structureSection}
+
+## Key Entities & Workflows
+- [ ] Elenca progetti, aree o temi critici.
+- [ ] Descrivi eventuali workflow automatizzati o checklist.
+- [ ] Indica i file di riferimento essenziali (ad esempio dashboard, index, roadmap).
+
+## Maintenance Checklist
+- Aggiorna questa sezione ogni volta che crei cartelle principali o nuove aree di lavoro.
+- Aggiungi note quando rimuovi o archivi contenuti rilevanti.
+- Specifica le priorità per la prossima sessione di lavoro dell'IA o dell'utente.
+
+---
+
+_Nota: questo file è gestito principalmente dall'IA MCP. L'utente può aggiungere informazioni chiave che l'IA deve conoscere. Se modifichi la struttura o i processi del vault, aggiorna sempre anche questo file._`;
+
+      await fs.writeFile(configPath, template, "utf8");
+
+      return {
+        content: [{
+          type: "text",
+          text: `${CONFIG_FILENAME} creato/aggiornato con successo per il vault ${vaultName}.\nPercorso: ${configPath}\nRicorda di personalizzare la sezione Purpose e di mantenerla allineata alla struttura reale del vault.`
+        }]
+      };
+    } catch (error) {
+      return {
+        content: [{
+          type: "text",
+          text: `Errore durante la generazione di ${CONFIG_FILENAME}: ${error.message}`
+        }]
+      };
+    }
+  }
+);
+
+// Tool 8: Search in specific file
 server.registerTool("search_in_file",
   {
     title: "Search in File",
@@ -599,7 +772,7 @@ server.registerTool("search_in_file",
   }
   );
   
-// Tool 7: Search in folder
+// Tool 9: Search in folder
 server.registerTool("search_in_folder",
     {
       title: "Search in Folder",
@@ -697,7 +870,7 @@ server.registerTool("search_in_folder",
     }
   );
   
-// Tool 8: Global search in vault
+// Tool 10: Global search in vault
 server.registerTool("global_search",
   {
     title: "Global Search",
@@ -764,11 +937,11 @@ server.registerTool("global_search",
   }
 );
 
-// Tool 9: Create folder
+// Tool 11: Create folder
 server.registerTool("create_folder",
   {
     title: "Create Folder",
-    description: "Create a new folder in a vault",
+    description: "Create a new folder in a vault Note: update config.md for related sections or workflows after deletion.",
     inputSchema: {
       vaultName: z.string().describe("Name of the vault"),
       folderPath: z.string().describe("Path of the folder to create")
@@ -781,12 +954,12 @@ server.registerTool("create_folder",
       
       await fs.ensureDir(fullPath);
       
-      return {
-        content: [{
-          type: "text",
-          text: `Folder ${folderPath} created successfully`
-        }]
-      };
+        return {
+          content: [{
+            type: "text",
+            text: `Folder ${folderPath} created successfully. Documenta il nuovo ramo in ${CONFIG_FILENAME} per mantenere allineata la mappa del vault.`
+          }]
+        };
     } catch (error) {
       return {
         content: [{
@@ -798,11 +971,11 @@ server.registerTool("create_folder",
   }
 );
 
-// Tool 10: Delete file or folder
+// Tool 12: Delete file or folder
 server.registerTool("delete_item",
   {
     title: "Delete Item",
-    description: "Delete a file or folder from a vault",
+    description: "Delete a file or folder from a vault Note: update config.md for related sections or workflows after deletion.",
     inputSchema: {
       vaultName: z.string().describe("Name of the vault"),
       itemPath: z.string().describe("Path to the file or folder to delete")
@@ -824,12 +997,12 @@ server.registerTool("delete_item",
       
       await fs.remove(fullPath);
       
-      return {
-        content: [{
-          type: "text",
-          text: `Item ${itemPath} deleted successfully`
-        }]
-      };
+        return {
+          content: [{
+            type: "text",
+            text: `Item ${itemPath} deleted successfully. Aggiorna ${CONFIG_FILENAME} se questa rimozione modifica sezioni o flussi descritti.`
+          }]
+        };
     } catch (error) {
       return {
         content: [{
@@ -841,11 +1014,11 @@ server.registerTool("delete_item",
   }
 );
 
-// Tool 11: Move/Rename item
+// Tool 13: Move/Rename item
 server.registerTool("move_item",
   {
     title: "Move/Rename Item",
-    description: "Move or rename a file or folder in a vault",
+    description: "Move or rename a file or folder in a vault Note: update config.md for related sections or workflows after deletion.",
     inputSchema: {
       vaultName: z.string().describe("Name of the vault"),
       sourcePath: z.string().describe("Current path of the item"),
@@ -872,12 +1045,12 @@ server.registerTool("move_item",
       
       await fs.move(sourceFullPath, destFullPath);
       
-      return {
-        content: [{
-          type: "text",
-          text: `Item moved from ${sourcePath} to ${destinationPath}`
-        }]
-      };
+        return {
+          content: [{
+            type: "text",
+            text: `Item moved from ${sourcePath} to ${destinationPath}. Ricorda di riflettere lo spostamento in ${CONFIG_FILENAME} e negli eventuali riferimenti correlati.`
+          }]
+        };
     } catch (error) {
       return {
         content: [{
@@ -889,7 +1062,7 @@ server.registerTool("move_item",
   }
 );
 
-// Tool 12: Get vault statistics
+// Tool 14: Get vault statistics
 server.registerTool("get_vault_stats",
   {
     title: "Get Vault Statistics",

@@ -1,29 +1,30 @@
 # Obsidian MCP Server
 
-Un server MCP (Model Context Protocol) completo per la gestione dei vault di Obsidian. Questo server permette di interagire con i tuoi vault Obsidian attraverso un'interfaccia MCP standardizzata.
+Server MCP per gestire e automatizzare i vault di Obsidian tramite il Model Context Protocol. Permette a strumenti e IA di lavorare in modo coerente sui contenuti del vault.
 
-## 🚀 Caratteristiche
+## Caratteristiche
 
-- **Gestione completa dei vault**: Elenca, visualizza e gestisce tutti i tuoi vault Obsidian
-- **Operazioni sui file**: Leggi, scrivi, modifica con operazioni mirate, sposta, elimina e rinomina file
-- **Ricerca avanzata**: Cerca testo in file specifici, in cartelle dedicate o in tutto il vault
-- **Gestione cartelle**: Crea, elimina e gestisci le cartelle
-- **Statistiche**: Ottieni informazioni dettagliate sui vault
-- **Risorse URI**: Accesso diretto ai contenuti tramite URI `vault://`
+- Gestione completa dei vault: elenco, accesso e navigazione
+- Operazioni sui file: lettura parziale, scrittura, modifiche mirate, spostamento ed eliminazione
+- Ricerca avanzata: su singoli file, cartelle dedicate o su tutto il vault
+- Guida contestuale: uso del file `config.md` per descrivere struttura, regole e flussi di lavoro
+- Gestione cartelle: creazione, eliminazione e ridenominazione
+- Statistiche: panoramica numerica sul contenuto del vault
+- Risorse URI: accesso diretto a file e cartelle con schema `vault://`
 
-## 📦 Installazione
+## Installazione
 
-1. **Clona o scarica** questo repository
-2. **Installa le dipendenze**:
+1. Clona o scarica questo repository
+2. Installa le dipendenze:
    ```bash
    npm install
    ```
 
-## ⚙️ Configurazione
+## Configurazione
 
 ### Configurazione del Server MCP
 
-Aggiungi questa configurazione al tuo client MCP (solitamente in `config.json`):
+Aggiungi al client MCP (ad esempio in `config.json`):
 
 ```json
 {
@@ -39,196 +40,178 @@ Aggiungi questa configurazione al tuo client MCP (solitamente in `config.json`):
 }
 ```
 
-### Variabili d'Ambiente
+### Variabili d Ambiente
 
-- **`OBSIDIAN_VAULT_PATH`**: Percorso alla cartella che contiene i tuoi vault Obsidian
+- `OBSIDIAN_VAULT_PATH`: percorso della cartella che contiene i vault di Obsidian
   - Default: `C:/Users/User/Documents/Obsidian`
   - Esempio: `E:\\I_miei_vault_obsidian`
 
-## 🔧 Strumenti (Tools) Disponibili
+## File `config.md`
+
+Il file `config.md`, situato nella root del vault, fornisce istruzioni strategiche per l IA e per l utente. Dovrebbe includere:
+
+- scopo generale del vault e temi principali
+- convenzioni di naming, tag e collegamenti tra note
+- workflow importanti, priorita e riferimenti essenziali
+
+Usa `init_vault_config` per generarlo o rigenerarlo e arricchiscilo con dettagli specifici. Prima di intervenire sul vault, richiama `get_vault_overview` per allinearti. Ogni volta che aggiungi, sposti o rimuovi elementi rilevanti, aggiorna anche `config.md`.
+
+## Strumenti (Tools) Disponibili
 
 ### 1. **`list_vaults`**
-Elenca tutti i vault disponibili con informazioni opzionali dettagliate.
+Elenca i vault disponibili con informazioni opzionali dettagliate.
 
 **Parametri:**
-- `detailed` (opzionale): `boolean` - Mostra informazioni dettagliate su ogni vault
-
-**Esempi:**
-```javascript
-// Lista semplice
-list_vaults()
-
-// Lista con dettagli
-list_vaults({ detailed: true })
-```
+- `detailed` (opzionale): `boolean`
 
 ### 2. **`get_vault_names`**
-Ottiene un array JSON semplice con solo i nomi dei vault.
+Restituisce solo i nomi dei vault in formato array JSON.
 
 ### 3. **`list_vault_contents`**
-Elenca file e cartelle in un vault specifico o in una sottocartella.
+Mostra file e cartelle presenti in un vault o in una sottocartella.
 
 **Parametri:**
-- `vaultName`: `string` - Nome del vault
-- `subPath` (opzionale): `string` - Percorso della sottocartella
+- `vaultName`: `string`
+- `subPath` (opzionale): `string`
 
 ### 4. **`read_file`**
-Legge il contenuto di un file in un vault, con la possibilit� di limitare la lettura a un intervallo di righe.
+Legge il contenuto di un file con supporto per intervalli di righe.
 
 **Parametri:**
-- `vaultName`: `string` - Nome del vault
-- `filePath`: `string` - Percorso del file nel vault
-- `startLine` (opzionale): `number` - Riga iniziale (1-based)
-- `endLine` (opzionale): `number` - Riga finale inclusiva
+- `vaultName`: `string`
+- `filePath`: `string`
+- `startLine` (opzionale): `number` (linea iniziale, 1-based)
+- `endLine` (opzionale): `number` (linea finale inclusiva)
 
 ### 5. **`write_file`**
-Crea o sovrascrive un file in un vault.
+Crea o sovrascrive un file nel vault.
 
 **Parametri:**
-- `vaultName`: `string` - Nome del vault
-- `filePath`: `string` - Percorso del file nel vault
-- `content`: `string` - Contenuto da scrivere
+- `vaultName`: `string`
+- `filePath`: `string`
+- `content`: `string`
+
+**Nota:** aggiorna `config.md` se il nuovo contenuto introduce regole o processi da documentare.
 
 ### 6. **`modify_file`**
-Applica modifiche mirate a un file senza dover fornire l'intero contenuto sostitutivo.
+Applica modifiche mirate senza riscrivere l intero file (append, prepend, insert, replace, replace_range).
 
 **Parametri:**
-- `vaultName`: `string` - Nome del vault
-- `filePath`: `string` - Percorso del file nel vault
-- `operations`: `Array` - Lista ordinata delle operazioni da applicare
+- `vaultName`: `string`
+- `filePath`: `string`
+- `operations`: `Array` di operazioni ordinate
 
-**Operazioni supportate:**
-- `append`: aggiunge testo alla fine del file
-- `prepend`: aggiunge testo all'inizio del file
-- `insert_after`: inserisce testo subito dopo un'ancora (con opzione `occurrence`)
-- `insert_before`: inserisce testo prima di un'ancora
-- `replace`: sostituisce la prima o N-esima occorrenza (o tutte impostando `allOccurrences: true`)
-- `replace_range`: sostituisce il contenuto compreso tra due offset (0-based, end esclusivo)
+**Nota:** se le modifiche cambiano workflow o convenzioni, sincronizza `config.md`.
 
-**Esempio:**
-```javascript
-modify_file({
-  vaultName: "PersonalNotes",
-  filePath: "journal/2025-07-16.md",
-  operations: [
-    { type: "append", text: "\n\n## Summary\nGiornata produttiva." },
-    { type: "replace", target: "TODO", text: "DONE", allOccurrences: true }
-  ]
-})
-```
-
-### 7. **`search_in_file`**
-Cerca testo in un file specifico.
+### 7. **`get_vault_overview`**
+Legge e restituisce il contenuto di `config.md` per comprendere contesto e istruzioni.
 
 **Parametri:**
-- `vaultName`: `string` - Nome del vault
-- `filePath`: `string` - Percorso del file
-- `searchTerm`: `string` - Testo da cercare
+- `vaultName`: `string`
 
-### 8. **`search_in_folder`**
-Cerca testo all'interno dei file presenti in una cartella specifica del vault.
+**Note:** usa questo tool come primo passo prima di modificare il vault; se `config.md` manca, esegui `init_vault_config`.
 
-**Parametri:**
-- `vaultName`: `string` - Nome del vault
-- `folderPath`: `string` - Cartella (relativa al vault) da ispezionare
-- `searchTerm`: `string` - Testo da cercare
-- `recursive` (opzionale): `boolean` - Include le sottocartelle (default `true`)
-- `filePattern` (opzionale): `string` - Pattern glob relativo alla cartella (es: `*.md`)
-
-### 9. **`global_search`**
-Cerca testo in tutti i file di un vault.
+### 8. **`init_vault_config`**
+Genera o rigenera `config.md` con template, panoramica automatica e checklist.
 
 **Parametri:**
-- `vaultName`: `string` - Nome del vault
-- `searchTerm`: `string` - Testo da cercare
-- `filePattern` (opzionale): `string` - Pattern dei file (es: `*.md`)
+- `vaultName`: `string`
+- `overwrite` (opzionale): `boolean`
+- `includeStructure` (opzionale): `boolean`
+- `additionalContext` (opzionale): `string`
 
-### 10. **`create_folder`**
-Crea una nuova cartella in un vault.
+**Suggerimenti:** personalizza il template e aggiorna il file quando cambi struttura o processi.
 
-**Parametri:**
-- `vaultName`: `string` - Nome del vault
-- `folderPath`: `string` - Percorso della cartella da creare
-
-### 11. **`delete_item`**
-Elimina un file o cartella da un vault.
+### 9. **`search_in_file`**
+Cerca testo all interno di un file specifico.
 
 **Parametri:**
-- `vaultName`: `string` - Nome del vault
-- `itemPath`: `string` - Percorso dell'elemento da eliminare
+- `vaultName`: `string`
+- `filePath`: `string`
+- `searchTerm`: `string`
 
-### 12. **`move_item`**
-Sposta o rinomina un file o cartella.
-
-**Parametri:**
-- `vaultName`: `string` - Nome del vault
-- `sourcePath`: `string` - Percorso attuale
-- `destinationPath`: `string` - Nuovo percorso
-
-### 13. **`get_vault_stats`**
-Ottiene statistiche dettagliate su un vault.
+### 10. **`search_in_folder`**
+Esegue ricerche limitate a una cartella (con supporto opzionale per ricorsione e glob).
 
 **Parametri:**
-- `vaultName`: `string` - Nome del vault
+- `vaultName`: `string`
+- `folderPath`: `string`
+- `searchTerm`: `string`
+- `recursive` (opzionale): `boolean`
+- `filePattern` (opzionale): `string`
 
-## 📁 Risorse (Resources)
+### 11. **`global_search`**
+Cerca testo in tutti i file del vault (con filtro per pattern).
+
+**Parametri:**
+- `vaultName`: `string`
+- `searchTerm`: `string`
+- `filePattern` (opzionale): `string`
+
+### 12. **`create_folder`**
+Crea una nuova cartella nel vault.
+
+**Parametri:**
+- `vaultName`: `string`
+- `folderPath`: `string`
+
+**Nota:** descrivi il nuovo ramo in `config.md` per mantenere la mappa del vault.
+
+### 13. **`delete_item`**
+Elimina file o cartelle.
+
+**Parametri:**
+- `vaultName`: `string`
+- `itemPath`: `string`
+
+**Nota:** annota in `config.md` la rimozione di elementi importanti.
+
+### 14. **`move_item`**
+Sposta o rinomina file e cartelle.
+
+**Parametri:**
+- `vaultName`: `string`
+- `sourcePath`: `string`
+- `destinationPath`: `string`
+
+**Nota:** aggiorna `config.md` per riflettere i nuovi percorsi.
+
+### 15. **`get_vault_stats`**
+Restituisce conteggi e dimensioni del vault.
+
+**Parametri:**
+- `vaultName`: `string`
+
+## Risorse (Resources)
 
 ### `vault://`
-Accesso diretto ai contenuti del vault tramite URI.
 
-**Schema URI:** `vault://{vaultName}/{path}`
+Accesso diretto a file e cartelle tramite URI `vault://{vaultName}/{path}`.
 
-**Esempi:**
-- `vault://MyVault/` - Contenuti della root del vault
-- `vault://MyVault/folder/file.md` - File specifico
-- `vault://MyVault/folder/` - Contenuti di una cartella
+Esempi:
+- `vault://MyVault/`
+- `vault://MyVault/folder/file.md`
+- `vault://MyVault/folder/`
 
-## 🌟 Esempi di Utilizzo
+## Esempi di Utilizzo
 
 ### Esempio 1: Visualizzare tutti i vault
 ```javascript
-// Lista semplice
 list_vaults()
-
-// Output:
-// 📁 Found 3 vaults in: E:\I_miei_vault_obsidian
-// 
-// 🗃️  PersonalNotes
-// 🗃️  WorkProjects
-// 🗃️  Research
 ```
 
-### Esempio 2: Ottenere statistiche di un vault
+### Esempio 2: Statistiche di un vault
 ```javascript
 get_vault_stats({ vaultName: "PersonalNotes" })
-
-// Output:
-// Statistics for vault "PersonalNotes":
-// 
-// 📊 Total Files: 156
-// 📝 Markdown Files: 142
-// 📄 Other Files: 14
-// 📁 Folders: 8
-// 💾 Total Size: 2.34 MB
 ```
 
-### Esempio 3: Cercare testo in tutto il vault
+### Esempio 3: Ricerca globale limitata ai Markdown
 ```javascript
-global_search({ 
-  vaultName: "PersonalNotes", 
+global_search({
+  vaultName: "PersonalNotes",
   searchTerm: "importante",
   filePattern: "*.md"
 })
-
-// Output:
-// Found matches for "importante" in 3 files:
-// 
-// 📄 notes/meeting.md (2 matches):
-//   Line 15: Questo punto è molto importante
-//   Line 23: Importante: scadenza 30 giorni
-// 
-// 📄 projects/project1.md (1 matches):
-//   Line 5: Nota importante sul progetto
 ```
 
 ### Esempio 4: Creare e scrivere un file
@@ -236,14 +219,11 @@ global_search({
 write_file({
   vaultName: "PersonalNotes",
   filePath: "daily/2025-07-16.md",
-  content: "# Daily Note - 16/07/2025\n\n## Tasks\n- [ ] Completare progetto\n- [ ] Riunione alle 15:00"
+  content: "# Daily Note\n\n## Tasks\n- [ ] Completare progetto\n- [ ] Riunione alle 15:00"
 })
-
-// Output:
-// File daily/2025-07-16.md written successfully
 ```
 
-### Esempio 5: Leggere solo una parte di un file
+### Esempio 5: Leggere solo parte di un file
 ```javascript
 read_file({
   vaultName: "PersonalNotes",
@@ -251,13 +231,9 @@ read_file({
   startLine: 10,
   endLine: 20
 })
-
-// Output:
-// Content of projects/progetto-a.md (lines 10-20 of 128):
-// ...
 ```
 
-### Esempio 6: Applicare modifiche mirate a un file
+### Esempio 6: Applicare modifiche mirate
 ```javascript
 modify_file({
   vaultName: "PersonalNotes",
@@ -267,54 +243,57 @@ modify_file({
     { type: "append", text: "\n- [ ] Task generato automaticamente" }
   ]
 })
-
-// Output:
-// File tasks/inbox.md modified successfully.
-// Operation 1: replaced all occurrences of target (1 matches)
-// Operation 2: appended 35 characters
 ```
 
-## 🔐 Sicurezza
+### Esempio 7: Consultare il contesto del vault
+```javascript
+get_vault_overview({ vaultName: "PersonalNotes" })
+```
 
-- Il server opera solo all'interno del percorso specificato in `OBSIDIAN_VAULT_PATH`
-- Tutti i percorsi sono validati per prevenire directory traversal
-- I file vengono letti/scritti solo all'interno dei vault autorizzati
+### Esempio 8: Rigenerare `config.md` con contesto extra
+```javascript
+init_vault_config({
+  vaultName: "PersonalNotes",
+  overwrite: true,
+  additionalContext: "Vault dedicato a progetti personali e roadmap trimestrali."
+})
+```
 
-## 🐛 Risoluzione Problemi
+## Sicurezza
+
+- Le operazioni sono limitate al percorso definito in `OBSIDIAN_VAULT_PATH`
+- I percorsi vengono validati per evitare traversal
+- Scritture e cancellazioni avvengono solo all interno dei vault autorizzati
+
+## Risoluzione Problemi
 
 ### Il server non trova i vault
-1. Verifica che la variabile `OBSIDIAN_VAULT_PATH` sia impostata correttamente
-2. Controlla che il percorso esista e sia accessibile
-3. Assicurati che i vault siano cartelle nella directory specificata
+1. Verifica `OBSIDIAN_VAULT_PATH`
+2. Controlla che il percorso esista ed sia accessibile
+3. Assicurati che i vault siano cartelle dirette del percorso indicato
 
 ### Errori di permessi
-- Verifica che il processo Node.js abbia i permessi di lettura/scrittura sulla directory dei vault
-- Su Windows, potresti dover eseguire come amministratore
+- Esegui Node con permessi adeguati
+- Su Windows potrebbe essere necessario avviare come amministratore
 
 ### Errori di dipendenze
 ```bash
-# Reinstalla le dipendenze
+# reinstallare le dipendenze
 npm install
 ```
 
-## 📄 Licenza
+## Licenza
 
-Questo progetto è rilasciato sotto licenza MIT.
+Progetto distribuito con licenza MIT.
 
-## 🤝 Contributi
+## Contributi
 
-I contributi sono benvenuti! Per favore:
-
-1. Fai un fork del repository
+1. Fai fork del repository
 2. Crea un branch per la tua feature
-3. Commit le tue modifiche
-4. Fai push del branch
+3. Commit delle modifiche
+4. Push del branch
 5. Apri una Pull Request
 
-## 📞 Supporto
+## Supporto
 
-Per problemi o domande, apri un issue nel repository GitHub.
-
----
-
-**Note:** Questo server MCP è progettato per funzionare con vault Obsidian standard. Assicurati che i tuoi vault siano strutturati correttamente e accessibili dal filesystem.
+Apri un issue nel repository GitHub per domande o problemi.
